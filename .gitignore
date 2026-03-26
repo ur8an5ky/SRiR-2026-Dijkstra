@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.py[cod]
+*venv/
+
+# C / MPI
+*.o
+*.out
+*.exe
+
+# Archiwa
+*.tar.gz
