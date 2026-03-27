@@ -15,9 +15,9 @@ def load_matrix(filepath):
     return matrix
 
 def build_graph(matrix):
-    """Builds a directed graph based on the adjacency matrix."""
-    # We use DiGraph because we established the graph is directed
-    G = nx.DiGraph()
+    """Builds an undirected graph based on the adjacency matrix."""
+    # We use Graph() for undirected graphs
+    G = nx.Graph()
     
     num_nodes = len(matrix)
     # Add nodes (from 0 to num_nodes - 1)
@@ -48,8 +48,8 @@ def save_graph_image(G, output_filepath):
     # 2. Draw node labels (numbers 0, 1, 2...)
     nx.draw_networkx_labels(G, pos, font_size=12, font_weight='bold')
     
-    # 3. Draw edges (directed arrows)
-    nx.draw_networkx_edges(G, pos, arrowstyle='-|>', arrowsize=20, edge_color='gray')
+    # 3. Draw edges (standard lines, no arrows)
+    nx.draw_networkx_edges(G, pos, edge_color='gray')
     
     # 4. Draw edge weights
     edge_labels = nx.get_edge_attributes(G, 'weight')
@@ -66,8 +66,7 @@ def save_graph_image(G, output_filepath):
     plt.close()
 
 def main():
-    # File paths (assuming execution from the main repository folder)
-    input_file = '../1_MPI/data/matrix.txt'
+    input_file = '../1_MPI/data/matrix1.txt'
     output_file = '../1_MPI/data/graph_output.png'
     
     if not os.path.exists(input_file):
