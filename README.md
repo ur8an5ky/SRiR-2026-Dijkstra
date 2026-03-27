@@ -3,7 +3,7 @@
 Repozytorium zawiera projekty realizowane w ramach przedmiotu **Systemy/Programowanie Równoległe i Rozproszone** na studiach magisterskich z Informatyki Stosowanej.
 
 ## 👥 Zespół
-* Jakub Szydełko - **nick**
+* Jakub Szydełko - **kubarroo**
 * Jakub Urbański - **ur8an5ky**
 
 ---
