@@ -7,6 +7,8 @@ __pycache__/
 *.o
 *.out
 *.exe
+1_MPI/build
+compile_commands.json
 
 # Archiwa
 *.tar.gz
