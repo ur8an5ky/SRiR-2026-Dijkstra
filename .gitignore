@@ -9,6 +9,7 @@ __pycache__/
 *.exe
 1_MPI/build
 compile_commands.json
+1_MPI\.cache
 
 # Archiwa
 *.tar.gz
