@@ -7,8 +7,14 @@
 #include <vector>
 #include <queue>
 
+struct DijkstraResult {
+    std::vector<int> l;
+    std::vector<int> parent;
+};
+
 void ImportGraph(const std::string&, std::vector<std::vector<std::pair<int, int>>>&);
-std::vector<int> DijkstraSingleSourceSP(const std::vector<std::vector<std::pair<int, int>>>&, int);
+DijkstraResult DijkstraSingleSourceSP(const std::vector<std::vector<std::pair<int, int>>>&, int);
+void PrintPath(const std::vector<int>&, int);
 
 int main(int argc, char *argv[])
 {
@@ -21,7 +27,7 @@ int main(int argc, char *argv[])
     std::vector<std::vector<std::pair<int, int>>> E;
     ImportGraph(argv[1], E);
 
-    std::cout << "Edges (from, to) -> weight:\n";
+    std::cout << "\nEdges (from, to) -> weight:\n";
     for (int i = 0; i < E.size(); i++)
     {
         for (const auto& [v, w] : E[i]) {
@@ -29,16 +35,29 @@ int main(int argc, char *argv[])
         }
     }
 
-    auto l = DijkstraSingleSourceSP(E, 0);
+    auto result = DijkstraSingleSourceSP(E, 0);
 
-    std::cout << "Shortest paths:\n";
-    for (int i = 0; i < l.size(); i++)
+    std::cout << "\nShortest paths:\n";
+    for (int i = 0; i < result.l.size(); i++)
     {
         std::cout << "vert " << i << " shortest path: ";
-        if (l[i] == INT_MAX)
-            std::cout << "INF" << std::endl;
+        if (result.l[i] == INT_MAX)
+        {
+            std::cout << "INF\n";
+        }
         else
-            std::cout << l[i] << std::endl;
+        {
+            std::cout << result.l[i] << " | path: ";
+            PrintPath(result.parent, i);
+            std::cout << "\n";
+        }
+    }
+
+    std::cout << "\nShortest-path tree edges:\n";
+    for (int v = 0; v < result.parent.size(); v++)
+    {
+        if (result.parent[v] != -1)
+            std::cout << result.parent[v] << " -> " << v << "\n";
     }
 
     return 0;
@@ -72,10 +91,11 @@ void ImportGraph(const std::string& filePath, std::vector<std::vector<std::pair<
 }
 
 
-std::vector<int> DijkstraSingleSourceSP(const std::vector<std::vector<std::pair<int, int>>>& E, int s)
+DijkstraResult DijkstraSingleSourceSP(const std::vector<std::vector<std::pair<int, int>>>& E, int s)
 {
     int n = E.size();
     std::vector<int> l(n, INT_MAX);
+    std::vector<int> parent(n, -1);
 
     using P = std::pair<int,int>; // {dist, vertex}
     std::priority_queue<P, std::vector<P>, std::greater<P>> pq;
@@ -96,10 +116,18 @@ std::vector<int> DijkstraSingleSourceSP(const std::vector<std::vector<std::pair<
             if (l[u] != INT_MAX && l[u] + w < l[v])
             {
                 l[v] = l[u] + w;
+                parent[v] = u;
                 pq.push({l[v], v});
             }
         }
     }
 
-    return l;  
+    return DijkstraResult{l, parent};  
+}
+
+void PrintPath(const std::vector<int>& parent, int v)
+{
+    if (v == -1) return;
+    PrintPath(parent, parent[v]);
+    std::cout << v << " ";
 }
