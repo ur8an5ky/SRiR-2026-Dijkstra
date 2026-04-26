@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Dijkstra MPI — Shortest-Path Tree</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+<header class="topbar">
+    <div class="brand">
+        <span class="brand-mark">◆</span>
+        <span class="brand-text">DIJKSTRA<span class="dim">/</span>MPI</span>
+        <span class="brand-sub">shortest-path tree visualizer</span>
+    </div>
+    <div class="runner-status" id="runner-status">
+        <span class="status-chip" data-available="{{ 'true' if runners_available.mpi else 'false' }}">
+            mpi {{ '✓' if runners_available.mpi else '✗' }}
+        </span>
+        <span class="status-chip" data-available="{{ 'true' if runners_available.fake else 'false' }}">
+            fake {{ '✓' if runners_available.fake else '✗' }}
+        </span>
+        <span class="status-chip" data-available="true">in-process ✓</span>
+    </div>
+</header>
+
+<main class="app">
+
+    <aside class="panel panel-left">
+        <section class="panel-section">
+            <h2>Graph</h2>
+            <label class="field">
+                <span>File</span>
+                <select id="graph-select">
+                    <option value="">— select —</option>
+                </select>
+            </label>
+            <button id="btn-load" class="btn btn-primary">Load graph</button>
+            <div class="meta" id="graph-meta"></div>
+        </section>
+
+        <section class="panel-section">
+            <h2>Solver</h2>
+            <label class="field">
+                <span>Runner</span>
+                <select id="runner-select">
+                    <option value="mpi" {% if not runners_available.mpi %}disabled{% endif %}>
+                        MPI (mpirun){% if not runners_available.mpi %} — not built{% endif %}
+                    </option>
+                    <option value="fake" {% if not runners_available.fake %}disabled{% endif %}>
+                        fake_runner.py{% if not runners_available.fake %} — not found{% endif %}
+                    </option>
+                    <option value="in_process" selected>in-process (scipy)</option>
+                </select>
+            </label>
+            <label class="field">
+                <span>Processes (np)</span>
+                <input type="number" id="np-input" value="1" min="1" max="64">
+            </label>
+            <button id="btn-compute" class="btn btn-primary" disabled>Compute shortest paths</button>
+        </section>
+
+        <section class="panel-section">
+            <h2>View</h2>
+            <label class="check">
+                <input type="checkbox" id="toggle-tree" checked>
+                <span>Highlight shortest-path tree</span>
+            </label>
+            <label class="check">
+                <input type="checkbox" id="toggle-labels">
+                <span>Show node labels</span>
+            </label>
+            <label class="check">
+                <input type="checkbox" id="toggle-weights">
+                <span>Show edge weights</span>
+            </label>
+            <button id="btn-relayout" class="btn btn-ghost">Re-run layout</button>
+        </section>
+
+        <section class="panel-section">
+            <h2>Benchmark</h2>
+            <label class="field">
+                <span>np values (csv)</span>
+                <input type="text" id="bench-np" value="1,2,4,8">
+            </label>
+            <button id="btn-benchmark" class="btn btn-ghost" disabled>Run benchmark</button>
+            <div id="bench-result"></div>
+        </section>
+    </aside>
+
+    <section class="canvas-wrap">
+        <div id="sigma-container"></div>
+        <div class="canvas-overlay" id="canvas-overlay">
+            <div class="overlay-empty">
+                <div class="overlay-glyph">∅</div>
+                <p>Load a graph to begin.</p>
+            </div>
+        </div>
+        <div class="canvas-toast" id="canvas-toast" hidden></div>
+    </section>
+
+    <aside class="panel panel-right">
+        <section class="panel-section">
+            <h2>Selected</h2>
+            <div id="selected-info" class="info">
+                <p class="dim">Click a node to inspect its shortest path.</p>
+            </div>
+        </section>
+
+        <section class="panel-section">
+            <h2>Path</h2>
+            <div id="path-info" class="info path-info">
+                <p class="dim">—</p>
+            </div>
+        </section>
+
+        <section class="panel-section">
+            <h2>Run statistics</h2>
+            <dl id="stats" class="stats">
+                <dt>Nodes</dt><dd id="stat-n">—</dd>
+                <dt>Source</dt><dd id="stat-source">—</dd>
+                <dt>Processes</dt><dd id="stat-np">—</dd>
+                <dt>Runner</dt><dd id="stat-runner">—</dd>
+                <dt>I/O time</dt><dd id="stat-io">—</dd>
+                <dt>Compute time</dt><dd id="stat-compute">—</dd>
+                <dt>Total</dt><dd id="stat-total">—</dd>
+            </dl>
+        </section>
+
+        <section class="panel-section legend">
+            <h2>Legend</h2>
+            <ul class="legend-list">
+                <li><span class="dot dot-source"></span> source</li>
+                <li><span class="dot dot-target"></span> selected target</li>
+                <li><span class="dot dot-path"></span> on shortest path</li>
+                <li><span class="dot dot-tree"></span> in shortest-path tree</li>
+                <li><span class="dot dot-unreached"></span> unreachable</li>
+            </ul>
+        </section>
+    </aside>
+
+</main>
+
+<!-- Vendor: graphology + sigma v2 (UMD builds, exposed as window.graphology and window.Sigma) -->
+<script src="https://cdn.jsdelivr.net/npm/graphology@0.25.4/dist/graphology.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/graphology-layout-forceatlas2@0.10.1/build/graphology-layout-forceatlas2.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sigma@2.4.0/build/sigma.min.js"></script>
+
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
