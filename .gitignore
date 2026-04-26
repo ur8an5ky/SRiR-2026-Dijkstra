@@ -2,6 +2,8 @@
 __pycache__/
 *.py[cod]
 *venv/
+scripts/test_matrices/matrix*
+scripts/test_matrices/graph_output*
 
 # C / MPI
 *.o

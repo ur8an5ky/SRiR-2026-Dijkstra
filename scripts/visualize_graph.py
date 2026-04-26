@@ -66,8 +66,10 @@ def save_graph_image(G, output_filepath):
     plt.close()
 
 def main():
-    input_file = '../1_MPI/data/matrix1.txt'
-    output_file = '../1_MPI/data/graph_output.png'
+    # input_file = '../1_MPI/data/matrix1.txt'
+    # output_file = '../1_MPI/data/graph_output.png'
+    input_file = 'test_matrices/matrix_100x100.txt'
+    output_file = 'test_matrices/graph_output.png'
     
     if not os.path.exists(input_file):
         print(f"Error: File {input_file} not found!")
