@@ -35,8 +35,8 @@ def main():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     
     # Create a local folder for tests in the same location
-    output_dir = os.path.join(script_dir, 'test_matrices')
-    output_file = os.path.join(output_dir, f'matrix_{args.size}x{args.size}.txt')
+    output_dir = os.path.join(script_dir, '../1_MPI/data')
+    output_file = os.path.join(output_dir, f'matrix_{args.size}.txt')
     
     print(f"Generating {args.size}x{args.size} matrix (density: {args.density})...")
     matrix = generate_symmetric_matrix(args.size, args.density)
