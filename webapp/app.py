@@ -31,8 +31,8 @@ from scipy.sparse.csgraph import dijkstra
 # ---------------------------------------------------------------------------
 
 PROJECT_ROOT = Path(__file__).resolve().parent
-GRAPHS_DIR = Path(os.environ.get("DIJKSTRA_GRAPHS_DIR", PROJECT_ROOT.parent / "scripts" / "test_matrices"))
-MPI_BINARY = Path(os.environ.get("DIJKSTRA_MPI_BIN", PROJECT_ROOT.parent / "build" / "DijkstraMPI"))
+GRAPHS_DIR = Path(os.environ.get("DIJKSTRA_GRAPHS_DIR", PROJECT_ROOT.parent / "1_MPI" / "data"))
+MPI_BINARY = Path(os.environ.get("DIJKSTRA_MPI_BIN", PROJECT_ROOT.parent / "1_MPI" / "build" / "DijkstraMPI"))
 FAKE_RUNNER = Path(os.environ.get("DIJKSTRA_FAKE_RUNNER", PROJECT_ROOT.parent / "scripts" / "fake_runner.py"))
 RESULT_PATH = Path(os.environ.get("DIJKSTRA_RESULT_PATH", "/tmp/dijkstra_result.json"))
 
