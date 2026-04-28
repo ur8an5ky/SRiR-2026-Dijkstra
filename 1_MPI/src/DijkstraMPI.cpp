@@ -15,7 +15,6 @@ struct DijkstraResult {
 
 struct Args {
     std::string matrixPath;
-    int source = 0;
     std::string outputPath;
 };
 
@@ -24,9 +23,10 @@ DijkstraResult DijkstraMPI(const std::vector<int>& W, int n, int s, int rank, in
 void PrintPath(const std::vector<int>& parent, int v);
 Args ParseArgs(int argc, char* argv[]);
 std::string ResolveOutputPath(const std::string& outputArg, const std::string& matrixPath);
-void WriteJsonResult(const std::string& path, int n, int source, int np,
+void WriteJsonResult(const std::string& path, int n, int np,
                      double elapsed, double ioTime, double computeTime,
-                     const std::vector<int>& dist, const std::vector<int>& parent);
+                     const std::vector<std::vector<int>>& allDist,
+                     const std::vector<std::vector<int>>& allParent);
 
 int main(int argc, char* argv[])
 {
@@ -43,8 +43,7 @@ int main(int argc, char* argv[])
         if (rank == 0) {
             std::cerr << "Error: " << e.what() << "\n\n"
                       << "Usage:\n"
-                      << "  mpirun -np N ./DijkstraMPI <matrix>\n"
-                      << "  mpirun -np N ./DijkstraMPI <matrix> [--source S] [--output PATH]\n";
+                      << "  mpirun -np N ./DijkstraMPI <matrix> [--output PATH]\n";
         }
         MPI_Finalize();
         return 1;
@@ -77,22 +76,17 @@ int main(int argc, char* argv[])
 
     double ioTime = MPI_Wtime() - tIoStart;
 
-    if (args.source < 0 || args.source >= n) {
-        if (rank == 0)
-            std::cerr << "Error: --source " << args.source
-                      << " out of range (n=" << n << ")\n";
-        MPI_Finalize();
-        return 1;
-    }
-
     double tComputeStart = MPI_Wtime();
-    DijkstraResult resultForJson;
+
+    std::vector<std::vector<int>> allDist;
+    std::vector<std::vector<int>> allParent;
+    if (rank == 0) {
+        allDist.reserve(n);
+        allParent.reserve(n);
+    }
 
     for (int s = 0; s < n; s++) {
         auto result = DijkstraMPI(W, n, s, rank, size);
-
-        if (s == args.source)
-            resultForJson = result;
 
         if (rank == 0) {
             std::cout << "\nShortest paths from source " << s << ":\n";
@@ -106,6 +100,8 @@ int main(int argc, char* argv[])
                     std::cout << "\n";
                 }
             }
+            allDist.push_back(std::move(result.l));
+            allParent.push_back(std::move(result.parent));
         }
     }
 
@@ -114,14 +110,14 @@ int main(int argc, char* argv[])
     if (rank == 0) {
         std::string outPath = ResolveOutputPath(args.outputPath, args.matrixPath);
         double elapsed = ioTime + computeTime;
-        WriteJsonResult(outPath, n, args.source, size,
-                        elapsed, ioTime, computeTime,
-                        resultForJson.l, resultForJson.parent);
+        WriteJsonResult(outPath, n, size, elapsed, ioTime, computeTime,
+                        allDist, allParent);
         std::cerr << "\n[JSON] wrote " << outPath
-                  << " (source=" << args.source
-                  << ", n=" << n
+                  << " (n=" << n
                   << ", np=" << size
-                  << ", elapsed=" << elapsed << "s)\n";
+                  << ", io=" << ioTime << "s"
+                  << ", compute=" << computeTime << "s"
+                  << ", total=" << elapsed << "s)\n";
     }
 
     MPI_Finalize();
@@ -136,10 +132,7 @@ Args ParseArgs(int argc, char* argv[])
 
     for (int i = 1; i < argc; i++) {
         std::string tok = argv[i];
-        if (tok == "--source") {
-            if (i + 1 >= argc) throw std::runtime_error("--source requires a value");
-            a.source = std::stoi(argv[++i]);
-        } else if (tok == "--output") {
+        if (tok == "--output") {
             if (i + 1 >= argc) throw std::runtime_error("--output requires a value");
             a.outputPath = argv[++i];
         } else if (tok.size() > 2 && tok.substr(0, 2) == "--") {
@@ -175,9 +168,10 @@ std::string ResolveOutputPath(const std::string& outputArg, const std::string& m
     return (out / (matrix.stem().string() + ".json")).string();
 }
 
-void WriteJsonResult(const std::string& path, int n, int source, int np,
+void WriteJsonResult(const std::string& path, int n, int np,
                      double elapsed, double ioTime, double computeTime,
-                     const std::vector<int>& dist, const std::vector<int>& parent)
+                     const std::vector<std::vector<int>>& allDist,
+                     const std::vector<std::vector<int>>& allParent)
 {
     std::ofstream out(path);
     if (!out)
@@ -185,25 +179,38 @@ void WriteJsonResult(const std::string& path, int n, int source, int np,
 
     out << "{\n";
     out << "  \"n\": " << n << ",\n";
-    out << "  \"source\": " << source << ",\n";
     out << "  \"num_processes\": " << np << ",\n";
-    out << "  \"elapsed_seconds\": " << elapsed << ",\n";
     out << "  \"io_seconds\": " << ioTime << ",\n";
     out << "  \"compute_seconds\": " << computeTime << ",\n";
+    out << "  \"elapsed_seconds\": " << elapsed << ",\n";
 
-    out << "  \"dist\": [";
-    for (int i = 0; i < n; i++) {
-        out << (dist[i] == INT_MAX ? -1 : dist[i]);
-        if (i < n - 1) out << ", ";
+    out << "  \"dist\": [\n";
+    for (int s = 0; s < n; s++) {
+        out << "    [";
+        for (int v = 0; v < n; v++) {
+            out << (allDist[s][v] == INT_MAX ? -1 : allDist[s][v]);
+            if (v < n - 1) out << ", ";
+        }
+        out << "]";
+        if (s < n - 1) out << ",";
+        out << "\n";
     }
-    out << "],\n";
+    out << "  ],\n";
 
-    out << "  \"parent\": [";
-    for (int i = 0; i < n; i++) {
-        out << parent[i];
-        if (i < n - 1) out << ", ";
+    // parent: lista list, parent[s][v] = poprzednik v na ścieżce z s
+    out << "  \"parent\": [\n";
+    for (int s = 0; s < n; s++) {
+        out << "    [";
+        for (int v = 0; v < n; v++) {
+            out << allParent[s][v];
+            if (v < n - 1) out << ", ";
+        }
+        out << "]";
+        if (s < n - 1) out << ",";
+        out << "\n";
     }
-    out << "]\n";
+    out << "  ]\n";
+
     out << "}\n";
 }
 
