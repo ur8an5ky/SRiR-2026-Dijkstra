@@ -328,7 +328,6 @@ async function loadSelectedGraph() {
         renderStats({ n: state.n });
         document.getElementById("canvas-overlay").classList.add("hidden");
         document.getElementById("btn-compute").disabled = false;
-        document.getElementById("btn-benchmark").disabled = false;
         document.getElementById("graph-meta").innerHTML =
             `<span class="ok">✓</span> ${state.n} nodes, ${state.edges.length} edges, ${state.directed ? "directed" : "undirected"}` +
             (state.needsClientLayout ? `<br>layout: client-side (forceAtlas2)` : `<br>layout: server-side`);
@@ -403,32 +402,6 @@ function onSourceChange(e) {
     }
 }
 
-async function runBenchmark() {
-    if (!state.filename) return;
-    const runner = document.getElementById("runner-select").value;
-    const npList = document.getElementById("bench-np").value
-        .split(",")
-        .map((s) => parseInt(s.trim(), 10))
-        .filter((x) => Number.isFinite(x) && x > 0);
-    if (!npList.length) {
-        toast("Enter at least one valid np value", true);
-        return;
-    }
-    setBusy(true, `Benchmark: ${npList.join(", ")}…`);
-    try {
-        const data = await api("/api/benchmark", {
-            filename: state.filename,
-            np_values: npList,
-            runner,
-        });
-        renderBenchmark(data);
-    } catch (e) {
-        toast(`Benchmark failed: ${e.message}`, true);
-    } finally {
-        setBusy(false);
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Right-side panels
 // ---------------------------------------------------------------------------
@@ -489,35 +462,6 @@ function renderStats(result) {
     set("stat-total", result.elapsed_seconds !== undefined ? formatSeconds(result.elapsed_seconds) : "—");
 }
 
-function renderBenchmark(data) {
-    const el = document.getElementById("bench-result");
-    if (!data.results || !data.results.length) {
-        el.innerHTML = `<p class="dim">No data.</p>`;
-        return;
-    }
-    const t1 = data.results.find((r) => r.np === 1)?.elapsed_seconds;
-    let html = `<table><thead><tr><th>np</th><th>compute</th><th>total</th><th>speedup</th></tr></thead><tbody>`;
-    for (const r of data.results) {
-        if (r.error) {
-            html += `<tr><td>${r.np}</td><td colspan="3" style="color:var(--warn)">err</td></tr>`;
-            continue;
-        }
-        const speedup = t1 && r.elapsed_seconds ? (t1 / r.elapsed_seconds).toFixed(2) : "—";
-        const cls = (t1 && r.elapsed_seconds && r.np > 1)
-            ? (t1 / r.elapsed_seconds >= r.np * 0.6 ? "speedup-good" : "speedup-bad")
-            : "";
-        html += `<tr>
-            <td>${r.np}</td>
-            <td>${formatSeconds(r.compute_seconds)}</td>
-            <td>${formatSeconds(r.elapsed_seconds)}</td>
-            <td class="${cls}">${speedup}x</td>
-        </tr>`;
-    }
-    html += `</tbody></table>`;
-    html += `<p class="dim" style="margin-top:8px">runner: ${data.runner}</p>`;
-    el.innerHTML = html;
-}
-
 // ---------------------------------------------------------------------------
 // Misc UI helpers
 // ---------------------------------------------------------------------------
@@ -541,10 +485,8 @@ function toast(msg, isError = false) {
 function setBusy(busy, msg) {
     const compute = document.getElementById("btn-compute");
     const load = document.getElementById("btn-load");
-    const bench = document.getElementById("btn-benchmark");
     compute.disabled = busy || !state.filename;
     load.disabled = busy;
-    bench.disabled = busy || !state.filename;
     if (busy && msg) toast(msg);
 }
 
@@ -558,7 +500,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
     document.getElementById("btn-load").addEventListener("click", loadSelectedGraph);
     document.getElementById("btn-compute").addEventListener("click", runCompute);
-    document.getElementById("btn-benchmark").addEventListener("click", runBenchmark);
 
     document.getElementById("source-select").addEventListener("change", onSourceChange);
 

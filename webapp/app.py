@@ -5,8 +5,7 @@ Exposes a small JSON API used by the single-page frontend:
     GET  /                  -> renders the SPA
     GET  /api/graphs        -> list TSV files in GRAPHS_DIR
     POST /api/graph         -> parse a TSV adjacency matrix, return nodes/edges + layout
-    POST /api/compute       -> run the solver (MPI binary, fake_runner, or in-process fallback)
-    POST /api/benchmark     -> run /api/compute for several np values, return timings
+    POST /api/compute       -> run the solver (MPI binary or in-process fallback)
 
 Configuration is via environment variables (see README).
 """
@@ -318,49 +317,6 @@ def compute() -> Any:
         return jsonify({"error": str(e), "runner_attempted": runner}), 500
 
     return jsonify(result)
-
-
-@app.route("/api/benchmark", methods=["POST"])
-def benchmark() -> Any:
-    data = request.get_json(force=True)
-    filename = data.get("filename")
-    np_values = data.get("np_values") or [1, 2, 4, 8]
-    requested_runner = data.get("runner") or "mpi"
-
-    if not filename:
-        return jsonify({"error": "filename required"}), 400
-
-    matrix_path = GRAPHS_DIR / filename
-    if not matrix_path.exists():
-        return jsonify({"error": f"{filename} not found"}), 404
-
-    runner = _select_runner(requested_runner)
-    rows = []
-    for p in np_values:
-        try:
-            if runner == "mpi":
-                cmd = ["mpiexec", "-hosts", "localhost", "-n", str(p),
-                       str(MPI_BINARY), str(matrix_path),
-                       "--output", str(RESULT_PATH)]
-                r = _solve_via_subprocess(cmd, "mpi") # , env=_mpi_env()
-            elif runner == "fake":
-                cmd = ["python3", str(FAKE_RUNNER), str(matrix_path),
-                       "--output", str(RESULT_PATH)]
-                r = _solve_via_subprocess(cmd, "fake")
-            else:
-                r = _solve_in_process(matrix_path)
-                r["num_processes"] = p
-            rows.append({
-                "np": p,
-                "elapsed_seconds": r.get("elapsed_seconds"),
-                "compute_seconds": r.get("compute_seconds"),
-                "io_seconds": r.get("io_seconds"),
-            })
-        except Exception as e:
-            rows.append({"np": p, "error": str(e)})
-
-    return jsonify({"runner": runner, "results": rows})
-
 
 if __name__ == "__main__":
     app.run(host="127.0.0.1", port=5000, debug=True)
