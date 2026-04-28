@@ -4,7 +4,7 @@ CXXFLAGS := -std=c++17 -O2 -Wall -Wextra -Iinclude
 TARGET := DijkstraMPI
 SRC := src/DijkstraMPI.cpp
 BUILD_DIR := build
-DATA_FILE := data/matrix3.txt
+DATA_FILE := data/matrix_25.txt
 
 NP := 16
 NODES := nodes
