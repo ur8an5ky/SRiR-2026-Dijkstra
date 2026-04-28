@@ -52,9 +52,9 @@ app = Flask(__name__)
 def _parse_tsv_matrix(path: Path) -> tuple[int, list[tuple[int, int, int]], bool]:
     """Parse a TSV adjacency matrix.
 
-    Values <= 0 are treated as "no edge". The matrix is checked for symmetry;
-    if symmetric, only edges with i < j are emitted (undirected). Otherwise
-    every nonzero off-diagonal entry becomes a directed edge.
+    Values of -1 (or 0) are treated as "no edge". The matrix is checked for
+    symmetry; if symmetric, only edges with i < j are emitted (undirected).
+    Otherwise every nonzero off-diagonal entry becomes a directed edge.
 
     Returns (n, edges, is_directed).
     """
@@ -124,9 +124,9 @@ def _compute_layout(n: int, edges: list[tuple[int, int, int]]) -> dict[int, tupl
     return {int(k): (float(v[0]), float(v[1])) for k, v in pos.items()}
 
 
-def _solve_in_process(matrix_path: Path, source: int) -> dict[str, Any]:
-    """Fallback solver: run scipy's Dijkstra directly. Same JSON shape as the
-    MPI binary should produce."""
+def _solve_in_process(matrix_path: Path) -> dict[str, Any]:
+    """Fallback solver: scipy's Dijkstra for all sources.
+    Returns the same JSON shape as the MPI binary."""
     t0 = time.perf_counter()
 
     rows: list[list[int]] = []
@@ -142,44 +142,45 @@ def _solve_in_process(matrix_path: Path, source: int) -> dict[str, Any]:
     for i in range(n):
         for j in range(n):
             w = rows[i][j]
-            arr[i][j] = w if w > 0 and i != j else 0  # 0 means "no edge" in scipy
+            arr[i][j] = w if w > 0 and i != j else 0
     t_io = time.perf_counter() - t0
 
     t1 = time.perf_counter()
     csr = csr_matrix(arr)
-    dist, predecessors = dijkstra(csgraph=csr, directed=False, indices=source, return_predecessors=True)
+    # All-sources: pass indices=None to compute from every node.
+    dist_arr, pred_arr = dijkstra(csgraph=csr, directed=False,
+                                  return_predecessors=True)
     t_compute = time.perf_counter() - t1
 
-    dist_list: list[int] = []
-    for d in dist:
-        if np.isinf(d):
-            dist_list.append(-1)
-        else:
-            dist_list.append(int(d))
-
-    parent_list = [int(p) if p >= 0 else -1 for p in predecessors]
-    parent_list[source] = -1
+    # Convert to list-of-lists with -1 sentinel for unreachable / no-parent.
+    all_dist: list[list[int]] = []
+    all_parent: list[list[int]] = []
+    for s in range(n):
+        row_d = [(-1 if np.isinf(d) else int(d)) for d in dist_arr[s]]
+        row_p = [(int(p) if p >= 0 else -1) for p in pred_arr[s]]
+        row_p[s] = -1   # source has no parent
+        all_dist.append(row_d)
+        all_parent.append(row_p)
 
     return {
         "n": n,
-        "source": source,
         "num_processes": 1,
         "elapsed_seconds": t_io + t_compute,
         "io_seconds": t_io,
         "compute_seconds": t_compute,
-        "dist": dist_list,
-        "parent": parent_list,
+        "dist": all_dist,
+        "parent": all_parent,
         "runner": "in_process_scipy",
     }
 
-
-def _solve_via_subprocess(cmd: list[str], runner_label: str) -> dict[str, Any]:
+def _solve_via_subprocess(cmd: list[str], runner_label: str,
+                          env: dict | None = None) -> dict[str, Any]:
     """Run a subprocess that writes RESULT_PATH, then read it back."""
     if RESULT_PATH.exists():
         RESULT_PATH.unlink()
 
     t0 = time.perf_counter()
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600) # , env=env
     wall = time.perf_counter() - t0
 
     if proc.returncode != 0:
@@ -198,6 +199,12 @@ def _solve_via_subprocess(cmd: list[str], runner_label: str) -> dict[str, Any]:
     result.setdefault("wall_seconds", wall)
     return result
 
+# def _mpi_env() -> dict:
+#     """Environment variables required to run the CUDA-aware MPICH binary
+#     on a node without a GPU/driver."""
+#     env = os.environ.copy()
+#     env["MPIR_CVAR_ENABLE_GPU"] = "0"
+#     return env
 
 def _select_runner(requested: str | None) -> str:
     """Pick the actual runner to use based on what the user asked for and what
@@ -282,7 +289,7 @@ def compute() -> Any:
     data = request.get_json(force=True)
     filename = data.get("filename")
     np_count = int(data.get("np", 1))
-    requested_runner = data.get("runner")  # "mpi" | "fake" | "in_process" | None
+    requested_runner = data.get("runner")
 
     if not filename:
         return jsonify({"error": "filename required"}), 400
@@ -296,23 +303,17 @@ def compute() -> Any:
     try:
         if runner == "mpi":
             cmd = [
-                "mpirun", "-np", str(np_count), str(MPI_BINARY),
-                str(matrix_path),
-                # NOTE: these flags are the ones we agreed your teammate will add.
-                # Until then, the binary may ignore them and write to stdout instead.
-                "--source", "0",
+                "mpiexec", "-hosts", "localhost", "-n", str(np_count),
+                str(MPI_BINARY), str(matrix_path),
                 "--output", str(RESULT_PATH),
             ]
-            result = _solve_via_subprocess(cmd, "mpi")
+            result = _solve_via_subprocess(cmd, "mpi") # , env=_mpi_env()
         elif runner == "fake":
-            cmd = [
-                "python3", str(FAKE_RUNNER), str(matrix_path),
-                "--source", "0",
-                "--output", str(RESULT_PATH),
-            ]
+            cmd = ["python3", str(FAKE_RUNNER), str(matrix_path),
+                   "--output", str(RESULT_PATH)]
             result = _solve_via_subprocess(cmd, "fake")
         else:
-            result = _solve_in_process(matrix_path, source=0)
+            result = _solve_in_process(matrix_path)
     except Exception as e:
         return jsonify({"error": str(e), "runner_attempted": runner}), 500
 
@@ -338,16 +339,17 @@ def benchmark() -> Any:
     for p in np_values:
         try:
             if runner == "mpi":
-                cmd = ["mpirun", "-np", str(p), str(MPI_BINARY),
-                       str(matrix_path), "--source", "0", "--output", str(RESULT_PATH)]
-                r = _solve_via_subprocess(cmd, "mpi")
+                cmd = ["mpiexec", "-hosts", "localhost", "-n", str(p),
+                       str(MPI_BINARY), str(matrix_path),
+                       "--output", str(RESULT_PATH)]
+                r = _solve_via_subprocess(cmd, "mpi") # , env=_mpi_env()
             elif runner == "fake":
                 cmd = ["python3", str(FAKE_RUNNER), str(matrix_path),
-                       "--source", "0", "--output", str(RESULT_PATH)]
+                       "--output", str(RESULT_PATH)]
                 r = _solve_via_subprocess(cmd, "fake")
             else:
-                r = _solve_in_process(matrix_path, source=0)
-                r["num_processes"] = p  # not actually parallel but we record the slot
+                r = _solve_in_process(matrix_path)
+                r["num_processes"] = p
             rows.append({
                 "np": p,
                 "elapsed_seconds": r.get("elapsed_seconds"),

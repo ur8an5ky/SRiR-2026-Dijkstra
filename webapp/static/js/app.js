@@ -12,14 +12,15 @@ const state = {
     filename: null,
     n: 0,
     directed: false,
-    edges: [],                // [[u, v, w], ...] from /api/graph
-    layout: null,             // {nodeId: {x, y}} or null
+    edges: [],
+    layout: null,
     needsClientLayout: false,
 
-    // Solve result (from /api/compute)
-    dist: null,
-    parent: null,
-    source: null,
+    // Solve result (from /api/compute) — 2D: indexed by source.
+    allDist: null,        // [[...], [...], ...] or null
+    allParent: null,      // [[...], [...], ...] or null
+    selectedSource: 0,    // which source the user has picked
+    runMeta: null,        // { num_processes, io_seconds, compute_seconds, elapsed_seconds, runner }
 
     // UI state
     selectedTarget: null,
@@ -67,9 +68,17 @@ function initSigma() {
         maxCameraRatio: 10,
     });
 
-    renderer.on("clickNode", ({ node }) => {
+    renderer.on("clickNode", ({ node, event }) => {
         const v = parseInt(node, 10);
-        state.selectedTarget = v;
+        if (event && event.original && (event.original.altKey || event.original.metaKey)) {
+            if (state.allDist) {
+                state.selectedSource = v;
+                state.selectedTarget = null;
+                updateSourceSelector();
+            }
+        } else {
+            state.selectedTarget = v;
+        }
         applyHighlights();
         renderSelectedInfo();
     });
@@ -143,10 +152,22 @@ function edgeSize(n) {
 // Highlighting — colours nodes and edges based on selectedTarget + parent[]
 // ---------------------------------------------------------------------------
 
+function currentDist() {
+    return state.allDist ? state.allDist[state.selectedSource] : null;
+}
+
+function currentParent() {
+    return state.allParent ? state.allParent[state.selectedSource] : null;
+}
+
 function applyHighlights() {
     if (!sigmaGraph) return;
 
-    const { dist, parent, source, selectedTarget, showTree } = state;
+    const dist = currentDist();
+    const parent = currentParent();
+    const source = state.allDist ? state.selectedSource : null;
+    const { selectedTarget, showTree } = state;
+
     const onPath = new Set();
     const pathEdges = new Set();
 
@@ -160,7 +181,6 @@ function applyHighlights() {
         }
     }
 
-    // Tree edges (parent[v] -> v for every reachable v with parent != -1)
     const treeEdges = new Set();
     if (parent && showTree) {
         for (let v = 0; v < state.n; v++) {
@@ -178,22 +198,20 @@ function applyHighlights() {
         let size = nodeSize(state.n);
 
         if (dist && dist[v] === -1 && v !== source) {
-            color = "#4a525e";   // unreachable
+            color = "#4a525e";
         }
 
-        if (v === source) {
-            color = "#f0b429";
-            size = nodeSize(state.n) * 1.6;
-        }
-
-        if (onPath.has(v)) {
-            color = "#00d9c0";
-            size = nodeSize(state.n) * 1.25;
-        }
-
+        // selected target wins over path nodes
         if (v === selectedTarget) {
             color = "#00d9c0";
             size = nodeSize(state.n) * 1.8;
+        } else if (v === source) {
+            // source is always gold (also when it sits on the path)
+            color = "#f0b429";
+            size = nodeSize(state.n) * 1.6;
+        } else if (onPath.has(v)) {
+            color = "#00d9c0";
+            size = nodeSize(state.n) * 1.25;
         }
 
         sigmaGraph.setNodeAttribute(nodeId, "color", color);
@@ -202,10 +220,10 @@ function applyHighlights() {
 
     // Edges
     sigmaGraph.forEachEdge((edgeId) => {
-        // Default
         let color = "#2c3540";
         let size = edgeSize(state.n);
 
+        // pathEdges should win over treeEdges (visually on top), so check tree first
         if (treeEdges.has(edgeId)) {
             color = "#4a90e2";
             size = edgeSize(state.n) * 1.4;
@@ -297,9 +315,10 @@ async function loadSelectedGraph() {
         state.directed = data.directed;
         state.layout = data.layout;
         state.needsClientLayout = data.needs_client_layout;
-        state.dist = null;
-        state.parent = null;
-        state.source = null;
+        state.allDist = null;
+        state.allParent = null;
+        state.selectedSource = 0;
+        state.runMeta = null;
         state.selectedTarget = null;
 
         initSigma();
@@ -333,10 +352,18 @@ async function runCompute() {
             runner,
             np,
         });
-        state.dist = result.dist;
-        state.parent = result.parent;
-        state.source = result.source;
+        state.allDist = result.dist;
+        state.allParent = result.parent;
+        state.selectedSource = 0;
         state.selectedTarget = null;
+        state.runMeta = {
+            num_processes: result.num_processes,
+            io_seconds: result.io_seconds,
+            compute_seconds: result.compute_seconds,
+            elapsed_seconds: result.elapsed_seconds,
+            runner: result.runner,
+        };
+        updateSourceSelector();
         applyHighlights();
         renderSelectedInfo();
         renderStats(result);
@@ -345,6 +372,34 @@ async function runCompute() {
         toast(`Compute failed: ${e.message}`, true);
     } finally {
         setBusy(false);
+    }
+}
+
+function updateSourceSelector() {
+    const select = document.getElementById("source-select");
+    if (!select) return;
+    select.innerHTML = "";
+    if (!state.allDist) {
+        select.disabled = true;
+        return;
+    }
+    select.disabled = false;
+    for (let s = 0; s < state.n; s++) {
+        const opt = document.createElement("option");
+        opt.value = String(s);
+        opt.textContent = `node ${s}`;
+        select.appendChild(opt);
+    }
+    select.value = String(state.selectedSource);
+}
+
+function onSourceChange(e) {
+    const s = parseInt(e.target.value, 10);
+    if (Number.isFinite(s)) {
+        state.selectedSource = s;
+        state.selectedTarget = null;
+        applyHighlights();
+        renderSelectedInfo();
     }
 }
 
@@ -382,6 +437,10 @@ function renderSelectedInfo() {
     const el = document.getElementById("selected-info");
     const pathEl = document.getElementById("path-info");
 
+    const dist = currentDist();
+    const parent = currentParent();
+    const source = state.allDist ? state.selectedSource : null;
+
     if (state.selectedTarget === null || state.selectedTarget === undefined) {
         el.innerHTML = `<p class="dim">Click a node to inspect its shortest path.</p>`;
         pathEl.innerHTML = `<p class="dim">—</p>`;
@@ -389,23 +448,22 @@ function renderSelectedInfo() {
     }
 
     const v = state.selectedTarget;
-    const d = state.dist ? state.dist[v] : null;
+    const d = dist ? dist[v] : null;
 
     let html = `<p><strong>Node ${v}</strong></p>`;
     if (d === null) {
         html += `<p class="dim">No solver result yet — press <em>Compute shortest paths</em>.</p>`;
     } else if (d === -1) {
-        html += `<p style="color: var(--warn);">Unreachable from source ${state.source}.</p>`;
+        html += `<p style="color: var(--warn);">Unreachable from source ${source}.</p>`;
     } else {
-        html += `<p>Distance from source: <strong>${d}</strong></p>`;
-        const parentV = state.parent[v];
+        html += `<p>Distance from source ${source}: <strong>${d}</strong></p>`;
+        const parentV = parent[v];
         html += `<p class="dim">Parent in tree: ${parentV === -1 ? "—" : parentV}</p>`;
     }
     el.innerHTML = html;
 
-    // Path
-    if (state.parent && d !== null && d !== -1) {
-        const path = reconstructPath(state.parent, state.source, v);
+    if (parent && d !== null && d !== -1) {
+        const path = reconstructPath(parent, source, v);
         if (path) {
             const chain = path
                 .map((x) => `<span>${x}</span>`)
@@ -423,7 +481,7 @@ function renderSelectedInfo() {
 function renderStats(result) {
     const set = (id, v) => (document.getElementById(id).textContent = v);
     set("stat-n", result.n ?? state.n ?? "—");
-    set("stat-source", result.source ?? "—");
+    set("stat-source", state.allDist ? state.selectedSource : "—");
     set("stat-np", result.num_processes ?? "—");
     set("stat-runner", result.runner ?? "—");
     set("stat-io", result.io_seconds !== undefined ? formatSeconds(result.io_seconds) : "—");
@@ -501,6 +559,8 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("btn-load").addEventListener("click", loadSelectedGraph);
     document.getElementById("btn-compute").addEventListener("click", runCompute);
     document.getElementById("btn-benchmark").addEventListener("click", runBenchmark);
+
+    document.getElementById("source-select").addEventListener("change", onSourceChange);
 
     document.getElementById("toggle-tree").addEventListener("change", (e) => {
         state.showTree = e.target.checked;
