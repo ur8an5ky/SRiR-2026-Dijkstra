@@ -43,7 +43,7 @@ int main(int argc, char* argv[])
         if (rank == 0) {
             std::cerr << "Error: " << e.what() << "\n\n"
                       << "Usage:\n"
-                      << "  mpirun -np N ./DijkstraMPI <matrix> [--output PATH]\n";
+                      << "  mpiexec -f <pathToNodesFile> -n <numberOfProcs> ./DijkstraMPI <matrix> [--output PATH]\n";
         }
         MPI_Finalize();
         return 1;
@@ -197,7 +197,6 @@ void WriteJsonResult(const std::string& path, int n, int np,
     }
     out << "  ],\n";
 
-    // parent: lista list, parent[s][v] = poprzednik v na ścieżce z s
     out << "  \"parent\": [\n";
     for (int s = 0; s < n; s++) {
         out << "    [";

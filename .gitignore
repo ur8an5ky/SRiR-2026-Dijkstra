@@ -12,6 +12,8 @@ scripts/test_matrices/graph_output*
 1_MPI/build
 compile_commands.json
 1_MPI\.cache
+1_MPI/data/*.json
+1_MPI/nodes
 
 # Archiwa
 *.tar.gz
