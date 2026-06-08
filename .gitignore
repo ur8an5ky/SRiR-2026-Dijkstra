@@ -15,5 +15,10 @@ compile_commands.json
 # 1_MPI/data/*.json
 1_MPI/nodes
 
+2_Distributed/build
+2_Distributed/nodes
+# 2_Distributed/data/matrix*
+# 2_Distributed/data/*.json
+
 # Archiwa
 *.tar.gz
