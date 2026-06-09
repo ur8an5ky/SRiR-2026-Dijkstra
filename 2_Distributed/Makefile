@@ -30,7 +30,7 @@ run: all
 
 # Uruchomienie lokalne
 run-local: all
-	upcxx-run -shared-heap $(HEAP) -n $(NP) ./$(BUILD_DIR)/$(TARGET) $(DATA_FILE)
+	upcxx-run -localhost -shared-heap $(HEAP) -n $(NP) ./$(BUILD_DIR)/$(TARGET) $(DATA_FILE)
 
 clean:
 	rm -rf $(BUILD_DIR) $(NODES)
