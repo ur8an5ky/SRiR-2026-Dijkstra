@@ -5,6 +5,9 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <chrono>
+#include <filesystem>
+#include <stdexcept>
 
 struct DistVertex
 {
@@ -23,7 +26,9 @@ void ImportGraphMatrix(const std::string& path, std::vector<int>& W, int& n)
 {
     std::ifstream file(path);
     if (!file)
+    {
         throw std::runtime_error("Could not open file: " + path);
+    }
 
     std::vector<std::vector<int>> rows;
     std::string line;
@@ -48,6 +53,122 @@ void ImportGraphMatrix(const std::string& path, std::vector<int>& W, int& n)
             W[i * n + j] = rows[i][j];
         }
     }
+}
+
+struct Args
+{
+    std::string matrixPath;
+    std::string outputPath;
+};
+
+Args ParseArgs(int argc, char* argv[])
+{
+    Args a;
+    if (argc < 2)
+    {
+        throw std::runtime_error("missing matrix path");
+    }
+
+    for (int i = 1; i < argc; i++)
+    {
+        std::string tok = argv[i];
+        if (tok == "--output")
+        {
+            if (i + 1 >= argc)
+            {
+                throw std::runtime_error("--output requires a value");
+            }
+            a.outputPath = argv[++i];
+        }
+        else if (tok.size() > 2 && tok.substr(0, 2) == "--")
+        {
+            throw std::runtime_error("unknown flag: " + tok);
+        }
+        else
+        {
+            if (!a.matrixPath.empty())
+            {
+                throw std::runtime_error("multiple matrix paths given");
+            }
+            a.matrixPath = tok;
+        }
+    }
+    if (a.matrixPath.empty())
+    {
+        throw std::runtime_error("matrix path is required");
+    }
+
+    return a;
+}
+
+std::string ResolveOutputPath(const std::string& outputArg, const std::string& matrixPath)
+{
+    namespace fs = std::filesystem;
+    fs::path matrix(matrixPath);
+
+    if (outputArg.empty())
+    {
+        fs::path out = matrix;
+        out.replace_extension(".json");
+
+        return out.string();
+    }
+    fs::path out(outputArg);
+    if (out.extension() == ".json")
+    {
+        return out.string();
+    }
+    fs::create_directories(out);
+    
+    return (out / (matrix.stem().string() + ".json")).string();
+}
+
+void WriteJsonResult(const std::string& path, int n, int np, double elapsed, double ioTime, double computeTime,
+                     const std::vector<std::vector<int>>& allDist, const std::vector<std::vector<int>>& allParent)
+{
+    std::ofstream out(path);
+    if (!out)
+    {
+        throw std::runtime_error("cannot open output file: " + path);
+    }
+
+    out << "{\n";
+    out << "  \"n\": " << n << ",\n";
+    out << "  \"num_processes\": " << np << ",\n";
+    out << "  \"io_seconds\": " << ioTime << ",\n";
+    out << "  \"compute_seconds\": " << computeTime << ",\n";
+    out << "  \"elapsed_seconds\": " << elapsed << ",\n";
+
+    out << "  \"dist\": [\n";
+    for (int s = 0; s < n; s++)
+    {
+        out << "    [";
+        for (int v = 0; v < n; v++)
+        {
+            out << (allDist[s][v] == INT_MAX ? -1 : allDist[s][v]);
+            if (v < n - 1) out << ", ";
+        }
+        out << "]";
+        if (s < n - 1) out << ",";
+        out << "\n";
+    }
+    out << "  ],\n";
+
+    out << "  \"parent\": [\n";
+    for (int s = 0; s < n; s++)
+    {
+        out << "    [";
+        for (int v = 0; v < n; v++)
+        {
+            out << allParent[s][v];
+            if (v < n - 1) out << ", ";
+        }
+        out << "]";
+        if (s < n - 1) out << ",";
+        out << "\n";
+    }
+    out << "  ]\n";
+    out << "}\n";
 }
 
 void PrintPath(const std::vector<int>& parent, int v)
@@ -134,15 +255,25 @@ int main(int argc, char* argv[])
     int rank = upcxx::rank_me();
     int size = upcxx::rank_n();
 
-    if (argc <= 1)
+    Args args;
+    try
+    {
+        args = ParseArgs(argc, argv);
+    }
+    catch (const std::exception& e)
     {
         if (rank == 0)
         {
-            std::cerr << "Usage: upcxx-run -n <N> ./DijkstraUPCXX <matrix>\n";
+            std::cerr << "Error: " << e.what() << "\n\n"
+                      << "Usage:\n"
+                      << "  upcxx-run -n N ./DijkstraUPCXX <matrix> [--output PATH]\n";
         }
         upcxx::finalize();
         return 1;
     }
+
+    upcxx::barrier();
+    auto tIoStart = std::chrono::steady_clock::now();
 
     std::vector<int> W;
     int n = 0;
@@ -151,7 +282,7 @@ int main(int argc, char* argv[])
     {
         try
         {
-            ImportGraphMatrix(argv[1], W, n);
+            ImportGraphMatrix(args.matrixPath, W, n);
         }
         catch (const std::exception& e)
         {
@@ -168,11 +299,22 @@ int main(int argc, char* argv[])
     }
 
     if (rank != 0)
-    {
         W.resize(n * n);
-    }
-
     upcxx::broadcast(W.data(), n * n, 0).wait();
+
+    upcxx::barrier();
+    double ioTime = std::chrono::duration<double>(std::chrono::steady_clock::now() - tIoStart).count();
+
+    upcxx::barrier();
+    auto tComputeStart = std::chrono::steady_clock::now();
+
+    std::vector<std::vector<int>> allDist;
+    std::vector<std::vector<int>> allParent;
+    if (rank == 0)
+    {
+        allDist.reserve(n);
+        allParent.reserve(n);
+    }
 
     for (int s = 0; s < n; s++)
     {
@@ -196,9 +338,29 @@ int main(int argc, char* argv[])
                     std::cout << "\n";
                 }
             }
+            allDist.push_back(std::move(l));
+            allParent.push_back(std::move(parent));
         }
     }
 
+    upcxx::barrier();
+    double computeTime = std::chrono::duration<double>(std::chrono::steady_clock::now() - tComputeStart).count();
+
+    if (rank == 0)
+    {
+        std::string outPath = ResolveOutputPath(args.outputPath, args.matrixPath);
+        double elapsed = ioTime + computeTime;
+        WriteJsonResult(outPath, n, size, elapsed, ioTime, computeTime, allDist, allParent);
+        
+        std::cerr << "\n[JSON] wrote " << outPath
+                  << " (n=" << n
+                  << ", np=" << size
+                  << ", io=" << ioTime << "s"
+                  << ", compute=" << computeTime << "s"
+                  << ", total=" << elapsed << "s)\n";
+    }
+
     upcxx::finalize();
+
     return 0;
 }
