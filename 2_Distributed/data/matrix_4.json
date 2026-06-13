@@ -1,9 +1,9 @@
 {
   "n": 4,
   "num_processes": 4,
-  "io_seconds": 0.000128282,
-  "compute_seconds": 0.000849568,
-  "elapsed_seconds": 0.00097785,
+  "io_seconds": 0.000128635,
+  "compute_seconds": 0.000560715,
+  "elapsed_seconds": 0.00068935,
   "dist": [
     [0, 18, 10, 16],
     [18, 0, 8, 34],

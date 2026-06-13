@@ -178,7 +178,7 @@ void PrintPath(const std::vector<int>& parent, int v)
     std::cout << v << " ";
 }
 
-void DijkstraUPCXX(const std::vector<int>& W, int n, int s, int rank, int size, std::vector<int>& outL, std::vector<int>& outParent)
+void DijkstraUPCXX(const std::vector<int>& W, int n, int s, int rank, int size, upcxx::global_ptr<int> gL, upcxx::global_ptr<int> gParent, std::vector<int>& outL, std::vector<int>& outParent)
 {
     int start = rank * n / size;
     int end   = (rank + 1) * n / size;
@@ -234,18 +234,35 @@ void DijkstraUPCXX(const std::vector<int>& W, int n, int s, int rank, int size, 
         }
     }
 
-    outL.assign(n, INT_MAX);
-    outParent.assign(n, -1);
-
-    for (int v = 0; v < n; v++)
+    if (rank == 0)
     {
-        int contribL = (v >= start && v < end) ? l[v] : INT_MAX;
-        outL[v] = upcxx::reduce_all(contribL, [](int a, int b){ return a < b ? a : b; }).wait();
-
-        int contribP = (v >= start && v < end) ? parent[v] : -1;
-        outParent[v] = upcxx::reduce_all(contribP, [](int a, int b){ return a > b ? a : b; }).wait();
+        int* lL = gL.local();
+        int* lP = gParent.local();
+        for (int v = 0; v < n; v++)
+        {
+            lL[v] = INT_MAX; lP[v] = -1;
+        }
     }
-    outParent[s] = -1;
+    upcxx::barrier();
+
+    int blockLen = end - start;
+    if (blockLen > 0)
+    {
+        auto fL = upcxx::rput(l.data() + start, gL + start, blockLen);
+        auto fP = upcxx::rput(parent.data() + start, gParent + start, blockLen);
+        upcxx::when_all(fL, fP).wait();
+    }
+
+    upcxx::barrier();
+
+    if (rank == 0)
+    {
+        int* localL = gL.local();
+        int* localParent = gParent.local();
+        outL.assign(localL, localL + n);
+        outParent.assign(localParent, localParent + n);
+        outParent[s] = -1;
+    }
 }
 
 int main(int argc, char* argv[])
@@ -298,12 +315,21 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    if (rank != 0)
-        W.resize(n * n);
+    if (rank != 0) W.resize(n * n);
     upcxx::broadcast(W.data(), n * n, 0).wait();
 
     upcxx::barrier();
     double ioTime = std::chrono::duration<double>(std::chrono::steady_clock::now() - tIoStart).count();
+
+    upcxx::global_ptr<int> gL = nullptr;
+    upcxx::global_ptr<int> gParent = nullptr;
+    if (rank == 0)
+    {
+        gL = upcxx::new_array<int>(n);
+        gParent = upcxx::new_array<int>(n);
+    }
+    gL = upcxx::broadcast(gL, 0).wait();
+    gParent = upcxx::broadcast(gParent, 0).wait();
 
     upcxx::barrier();
     auto tComputeStart = std::chrono::steady_clock::now();
@@ -319,7 +345,7 @@ int main(int argc, char* argv[])
     for (int s = 0; s < n; s++)
     {
         std::vector<int> l, parent;
-        DijkstraUPCXX(W, n, s, rank, size, l, parent);
+        DijkstraUPCXX(W, n, s, rank, size, gL, gParent, l, parent);
 
         if (rank == 0)
         {
@@ -351,13 +377,19 @@ int main(int argc, char* argv[])
         std::string outPath = ResolveOutputPath(args.outputPath, args.matrixPath);
         double elapsed = ioTime + computeTime;
         WriteJsonResult(outPath, n, size, elapsed, ioTime, computeTime, allDist, allParent);
-        
+
         std::cerr << "\n[JSON] wrote " << outPath
                   << " (n=" << n
                   << ", np=" << size
                   << ", io=" << ioTime << "s"
                   << ", compute=" << computeTime << "s"
                   << ", total=" << elapsed << "s)\n";
+    }
+
+    if (rank == 0)
+    {
+        upcxx::delete_array(gL);
+        upcxx::delete_array(gParent);
     }
 
     upcxx::finalize();
