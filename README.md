@@ -12,10 +12,10 @@ Repozytorium zawiera projekty realizowane w ramach przedmiotu **Systemy/Programo
 
 Projekt wykorzystuje architekturę monorepo, dzieląc się na dwa główne zadania oraz zbiór narzędzi pomocniczych:
 
-* `1_MPI/` - Projekt 1: Aplikacja równoległa w C/C++ z wykorzystaniem MPI.
-* `2_Distributed/` - Projekt 2: Aplikacja rozproszona (Java RMI / CORBA / PGAS).
+* `1_MPI/` - Projekt 1: Aplikacja równoległa w C++ z wykorzystaniem MPI.
+* `2_Distributed/` - Projekt 2: Aplikacja rozproszona w modelu PGAS z wykorzystaniem UPC++.
 * `scripts/` - Skrypty pomocnicze (Python): generator losowych grafów spójnych, narzędzia wizualizacyjne, fake_runner do testów.
-* `webapp/` - Aplikacja webowa (Flask) do graficznej wizualizacji wyników projektów
+* `webapp/` - Aplikacja webowa (Flask) do graficznej wizualizacji wyników projektów.
 
 ---
 
@@ -102,17 +102,84 @@ Szczegółowy opis algorytmu, zrównoleglenia (formuła source-parallel z Gramy/
 
 ---
 
-## 🌐 Projekt 2: Aplikacja rozproszona
+## 🌐 Projekt 2: Aplikacja rozproszona (PGAS / UPC++)
 
-* *(Szczegóły zostaną uzupełnione w późniejszym terminie)*.
+* **Temat:** Drzewa wszystkich najkrótszych ścieżek - algorytm Dijkstry (ten sam co w Projekcie 1).
+* **Literatura:** A. Grama, A. Gupta, *Introduction to Parallel Computing* (par. 10.3).
+* **Technologie:** C++17, UPC++ 2025.10 (model PGAS, transport GASNet/UDP).
+
+### Krótki opis
+
+Ten sam algorytm co w Projekcie 1, zaimplementowany w modelu **PGAS** (Partitioned Global Address Space) z wykorzystaniem biblioteki **UPC++**. Zachowano identyczną dekompozycję source-parallel (podział wierzchołków pomiędzy procesy), natomiast warstwa komunikacji jest inna niż w MPI:
+
+* selekcja globalnego minimum przez `upcxx::reduce_all` z własnym operatorem MINLOC (odpowiednik `MPI_Allreduce`),
+* **zbieranie wyników przez komunikację jednostronną** (`rput` do globalnej przestrzeni adresowej) - każdy proces zapisuje swój blok wyników wprost do pamięci procesu 0 przez `global_ptr`, bez aktywnego udziału odbiorcy.
+
+To właśnie jednostronny dostęp do zdalnej pamięci (RMA) odróżnia model PGAS od czystego message-passing z Projektu 1. Program produkuje wynik w **tym samym formacie JSON** co wersja MPI, dzięki czemu współpracuje z tą samą aplikacją webową.
+
+### Jak uruchomić
+
+#### Wymagania
+
+* Kompilator C++ z obsługą standardu C++17.
+* UPC++ 2025.10 (dostępne w pracowni przez `/opt/nfs/config/source_upcxx.sh`).
+* GNU Make.
+
+#### Krok 1 - połączenie z węzłem klastra
+
+```bash
+ssh user@taurus.fis.agh.edu.pl
+ssh stud204-XX
+```
+
+#### Krok 2 - konfiguracja środowiska UPC++
+
+```bash
+source /opt/nfs/config/source_upcxx.sh
+```
+
+#### Krok 3 - kompilacja i uruchomienie
+
+```bash
+cd 2_Distributed/
+make            # kompilacja (conduit UDP)
+make run        # uruchomienie na klastrze (NP=4, data/matrix_25.txt)
+```
+
+Liczbę zadań (*ranks*) oraz plik wejściowy można nadpisać:
+
+```bash
+make run NP=8
+make run NP=16 DATA_FILE=data/matrix_100.txt
+```
+
+Uruchomienie lokalne (jeden host, bez listy węzłów):
+
+```bash
+make run-local NP=4 DATA_FILE=data/matrix_4.txt
+```
+
+Sprzątanie:
+
+```bash
+make clean
+```
+
+### Format danych
+
+Identyczny jak w Projekcie 1 (TSV na wejściu, JSON na wyjściu) - obie aplikacje są w pełni kompatybilne i mogą korzystać z tych samych macierzy testowych oraz tej samej wizualizacji.
+
+### Pełna dokumentacja
+
+*(Szczegółowy opis modelu PGAS, mapowania komunikacji MPI → UPC++ oraz implementacji - w pliku PDF `2_Distributed/dokumentacja.pdf`, w przygotowaniu)*.
 
 ---
 
 ## 🎨 Aplikacja webowa - wizualizacja wyników
 
-Pomocnicza aplikacja Flask udostępnia interaktywną wizualizację drzew najkrótszych ścieżek wytworzonych przez program MPI. Pozwala wczytać dowolną macierz, uruchomić solver MPI lub fallback `scipy`, przełączać wierzchołek źródłowy bez ponownego liczenia oraz inspekcjonować ścieżki kliknięciem.
+Pomocnicza aplikacja Flask udostępnia interaktywną wizualizację drzew najkrótszych ścieżek. Ponieważ oba projekty (MPI i UPC++) produkują wynik w tym samym formacie JSON, aplikacja obsługuje wyniki z obu. Pozwala wczytać dowolną macierz, uruchomić solver lub fallback `scipy`, przełączać wierzchołek źródłowy bez ponownego liczenia oraz inspekcjonować ścieżki kliknięciem.
 
-Pełna instrukcja uruchamiania (Conda lub `venv`, konfiguracja MPI, tunelowanie portu) - w pliku [`webapp/README.md`](webapp/README.md).
+Pełna instrukcja uruchamiania (Conda lub `venv`, konfiguracja środowiska, tunelowanie portu) - w pliku [`webapp/README.md`](webapp/README.md).
 
 ---
 
