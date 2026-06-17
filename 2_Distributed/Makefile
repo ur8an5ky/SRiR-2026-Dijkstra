@@ -1,8 +1,8 @@
-# Kompilator UPC++ (wrapper na g++)
+# Kompilator UPC++
 UPCXX := upcxx
 UPCXXFLAGS := -O2 -std=c++17
 
-# Conduit GASNet: udp w pracowni (zgodnie z README.UPC++)
+# Conduit GASNet: udp w pracowni
 CONDUIT := udp
 
 TARGET := DijkstraUPCXX

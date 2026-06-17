@@ -214,8 +214,7 @@ void DijkstraUPCXX(const std::vector<int>& W, int n, int s, int rank, int size, 
             }
         }
 
-        DistVertex globalMin =
-            upcxx::reduce_all(localMin, minloc).wait();
+        DistVertex globalMin = upcxx::reduce_all(localMin, minloc).wait();
 
         int u = globalMin.vertex;
         int distU = globalMin.dist;
