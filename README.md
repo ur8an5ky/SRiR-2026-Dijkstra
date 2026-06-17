@@ -171,7 +171,7 @@ Identyczny jak w Projekcie 1 (TSV na wejściu, JSON na wyjściu) - obie aplikacj
 
 ### Pełna dokumentacja
 
-*(Szczegółowy opis modelu PGAS, mapowania komunikacji MPI → UPC++ oraz implementacji - w pliku PDF `2_Distributed/dokumentacja.pdf`, w przygotowaniu)*.
+*(Szczegółowy opis modelu PGAS, mapowania komunikacji MPI → UPC++ oraz implementacji - w pliku PDF `2_Distributed/dokumentacja.pdf`)*.
 
 ---
 
